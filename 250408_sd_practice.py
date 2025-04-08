@@ -72,7 +72,7 @@ class Vehicle(pygame.sprite.Sprite):
         if control_signal['throttle'] > 0:
             self.speed += self.acceleration * abs(control_signal['throttle']) # 스로틀 강도 반영
         elif control_signal['throttle'] < 0:
-            self.speed -= self.acceleration * 2 * abs(control_signal['throttle'])
+            self.speed -= self.acceleration * 1 * abs(control_signal['throttle'])
         else:
             self.speed *= 0.98 # 자연 감속
         self.speed = max(-self.max_speed / 2, min(self.max_speed, self.speed))
@@ -91,7 +91,7 @@ class Vehicle(pygame.sprite.Sprite):
         # 속도가 0에 가까울 때 수동으로 좌우키 누르면 제자리에서 약간 회전하도록 추가 (선택 사항)
         elif abs(self.speed) < 0.1 and abs(control_signal['steering']) > 0:
              manual_turn_rate = math.radians(60) # 초당 60도 회전
-             self.angle += manual_turn_rate * control_signal['steering'] * dt
+             self.angle -= manual_turn_rate * control_signal['steering'] * dt
 
 
         # 4. 위치 업데이트
@@ -226,8 +226,8 @@ def simple_controller(vehicle, path_world, current_path_index):
 
     target_angle = math.atan2(target_dy, target_dx)
     angle_error = target_angle - vehicle.angle
-    while angle_error > math.pi: angle_error -= 2 * math.pi
-    while angle_error < -math.pi: angle_error += 2 * math.pi
+    while angle_error > math.pi: angle_error += 2 * math.pi
+    while angle_error < -math.pi: angle_error -= 2 * math.pi
 
     Kp_steering = 0.9
     steering_signal = Kp_steering * angle_error
@@ -303,7 +303,7 @@ while running:
         if keys[pygame.K_LEFT]:
             control_signal['steering'] = 4.0 # 좌회전 강도
         elif keys[pygame.K_RIGHT]:
-            control_signal['steering'] = 4.0 # 우회전 강도
+            control_signal['steering'] = -4.0 # 우회전 강도
 
     else:
         # 자동 조작 로직 (경로 있을 때만)
