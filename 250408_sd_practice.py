@@ -1,26 +1,17 @@
 import pygame
 import numpy as np
 import math
-<<<<<<< HEAD
-import heapq # A* 구현 시 사용
-=======
 import heapq
 import time
->>>>>>> shin
 
 # --- 초기 설정 ---
 pygame.init()
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 600
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-<<<<<<< HEAD
-pygame.display.set_caption("2D Autonomous Driving Simulation")
-clock = pygame.time.Clock()
-=======
-pygame.display.set_caption("2D Autonomous Driving Simulation with A* & Manual Override")
+pygame.display.set_caption("2D Autonomous Driving Simulation - Tuned Controller") # 캡션 변경
 clock = pygame.time.Clock()
 FONT = pygame.font.SysFont(None, 24)
 BOLD_FONT = pygame.font.SysFont(None, 28, bold=True)
->>>>>>> shin
 
 # --- 색상 정의 ---
 WHITE = (255, 255, 255)
@@ -29,27 +20,6 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 GRAY = (200, 200, 200)
-<<<<<<< HEAD
-
-# --- 맵 데이터 (간단한 예시: 벽) ---
-# 실제로는 이미지 파일을 로드하거나, 더 복잡한 구조 사용 가능
-# 여기서는 Rect 객체 리스트로 벽을 표현
-walls = [
-    pygame.Rect(100, 100, 20, 400),
-    pygame.Rect(680, 100, 20, 400),
-    pygame.Rect(100, 100, 580, 20),
-    pygame.Rect(100, 480, 580, 20),
-    pygame.Rect(300, 200, 200, 20) # 내부 장애물
-]
-
-# --- 차량 클래스 ---
-class Vehicle(pygame.sprite.Sprite):
-    def __init__(self, x, y, angle=0):
-        super().__init__()
-        self.image = pygame.Surface([30, 20], pygame.SRCALPHA) # 투명 배경
-        pygame.draw.rect(self.image, BLUE, (0, 0, 30, 20)) # 파란색 사각형으로 차량 표현
-        pygame.draw.circle(self.image, RED, (25, 10), 5) # 앞쪽 표시
-=======
 DARK_GRAY = (100, 100, 100)
 YELLOW = (255, 255, 0)
 MAGENTA = (255, 0, 255)
@@ -78,22 +48,10 @@ class Vehicle(pygame.sprite.Sprite):
         self.image = pygame.Surface([self.width, self.height], pygame.SRCALPHA)
         pygame.draw.rect(self.image, BLUE, (0, 0, self.width, self.height))
         pygame.draw.circle(self.image, RED, (self.width - 5, self.height // 2), 5)
->>>>>>> shin
         self.original_image = self.image
         self.rect = self.image.get_rect(center=(x, y))
         self.x = float(x)
         self.y = float(y)
-<<<<<<< HEAD
-        self.angle = math.radians(angle) # 각도는 라디안 사용
-        self.speed = 0.0
-        self.max_speed = 3.0
-        self.acceleration = 0.1
-        self.steering_angle = 0.0 # 조향각 (라디안)
-        self.max_steering = math.radians(40) # 최대 조향각
-
-    def update(self, control_signal):
-        # control_signal: {'throttle': float, 'steering': float} (-1 to 1)
-=======
         self.angle = math.radians(angle)
         self.speed = 0.0
         # 속도/가속도 이전 값으로 복원 또는 적절히 조절
@@ -108,50 +66,11 @@ class Vehicle(pygame.sprite.Sprite):
     def update(self, control_signal, dt):
         collided = False
         self.last_valid_position = (self.x, self.y)
->>>>>>> shin
 
         # 1. 조향각 업데이트
         self.steering_angle = control_signal['steering'] * self.max_steering
 
-<<<<<<< HEAD
-        # 2. 속도 업데이트 (간단한 가속/감속)
-        if control_signal['throttle'] > 0:
-            self.speed += self.acceleration
-        elif control_signal['throttle'] < 0:
-            self.speed -= self.acceleration * 2 # 브레이크는 더 강하게
-        else:
-            # 자연 감속 (마찰)
-            self.speed *= 0.98
-        self.speed = max(-self.max_speed / 2, min(self.max_speed, self.speed)) # 후진 속도 제한
-
-        # 3. 차량 각도 업데이트 (자전거 모델 기반)
-        # L = 차량 길이 (축간 거리, 여기서는 단순화)
-        L = 25 # 예시 값
-        if abs(self.steering_angle) > 1e-4: # 조향각이 있을 때만 회전
-            turn_radius = L / math.tan(self.steering_angle)
-            angular_velocity = self.speed / turn_radius
-            self.angle += angular_velocity * (1/60.0) # dt = 1/fps (60fps 기준)
-
-        # 4. 위치 업데이트
-        self.x += self.speed * math.cos(self.angle)
-        self.y += self.speed * math.sin(self.angle) # Pygame 좌표계는 y가 아래로 증가
-
-        # 5. 이미지 회전 및 위치 업데이트
-        self.image = pygame.transform.rotate(self.original_image, -math.degrees(self.angle)) # Pygame 각도는 degree, 반시계방향
-        self.rect = self.image.get_rect(center=(int(self.x), int(self.y)))
-
-        # 충돌 처리 (여기서는 간단히 벽과 충돌 시 멈춤)
-        for wall in walls:
-            if self.rect.colliderect(wall):
-                # 충돌 시 이전 위치로 복귀 (간단한 처리)
-                self.x -= self.speed * math.cos(self.angle)
-                self.y -= self.speed * math.sin(self.angle)
-                self.speed = 0
-                self.rect = self.image.get_rect(center=(int(self.x), int(self.y)))
-                break
-=======
-        # 2. 속도 업데이트
-        # 수동 조작 시에는 직접적인 스로틀 값을 사용할 수 있도록 수정 가능 (현재는 동일 로직 사용)
+        # 2. 속도 업데이트 (후진 감속 계수 복원)
         if control_signal['throttle'] > 0:
             self.speed += self.acceleration * abs(control_signal['throttle'])
         elif control_signal['throttle'] < 0:
@@ -196,61 +115,12 @@ class Vehicle(pygame.sprite.Sprite):
             self.rect = self.image.get_rect(center=(int(self.x), int(self.y)))
             # 충돌 시 각도 유지 로직 제거 또는 수정 가능 (현재는 제거)
 
-        return collided # 충돌 여부 반환
->>>>>>> shin
+        return collided
 
     def draw(self, surface):
         surface.blit(self.image, self.rect)
 
-<<<<<<< HEAD
-# --- A* 경로 계획 함수 ---
-# (구현 필요 - 간단히 설명)
-# 입력: 맵(grid), 시작점(tuple), 목표점(tuple)
-# 출력: 경로(waypoints list)
-def a_star_pathfinding(grid_map, start_node, goal_node):
-    # 1. 그리드 맵 생성: walls 정보를 바탕으로 이동 가능한 셀과 불가능한 셀 구분
-    # 2. Open 리스트(힙큐), Closed 리스트(셋) 초기화
-    # 3. 시작 노드를 Open 리스트에 추가
-    # 4. Open 리스트가 빌 때까지 반복:
-    #    a. f_cost가 가장 낮은 노드(current)를 Open 리스트에서 꺼내 Closed 리스트에 추가
-    #    b. current가 목표 노드면 경로 역추적 후 반환
-    #    c. current의 이웃 노드들에 대해:
-    #       i. 이웃이 벽이 아니고 Closed 리스트에 없으면:
-    #       ii. g_cost, h_cost, f_cost 계산
-    #       iii. 이웃이 Open 리스트에 없거나 더 좋은 경로면 정보 업데이트 후 Open 리스트에 추가
-    # 5. 경로를 찾지 못하면 None 반환
-    print(f"A* Pathfinding from {start_node} to {goal_node}")
-    # 여기서는 임시로 직선 경로 반환 (실제 A* 구현 필요)
-    path = []
-    steps = 10 # 경로점 개수
-    if start_node and goal_node:
-        for i in range(steps + 1):
-            x = start_node[0] + (goal_node[0] - start_node[0]) * (i / steps)
-            y = start_node[1] + (goal_node[1] - start_node[1]) * (i / steps)
-            path.append((int(x), int(y)))
-    return path
-
-
-# --- 제어 로직 함수 ---
-# (구현 필요 - 간단히 설명)
-# 입력: 차량 상태(vehicle), 경로(path)
-# 출력: 제어 신호 {'throttle': float, 'steering': float}
-def simple_controller(vehicle, path):
-    if not path or len(path) < 2:
-        return {'throttle': 0.0, 'steering': 0.0} # 경로 없으면 정지
-
-    # 가장 가까운 경로점 찾기 (또는 다음 목표점 설정)
-    target_point = None
-    current_segment_index = 0 # 실제로는 현재 위치 기반으로 찾아야 함
-    if len(path) > 1 :
-        target_point = path[1] # 일단 다음 점을 목표로
-
-    if target_point is None:
-         return {'throttle': 0.0, 'steering': 0.0}
-
-    # 목표점까지의 벡터 계산
-=======
-# --- A* Node 클래스 (이전과 동일) ---
+# --- A* Node 클래스 ---
 class Node:
     def __init__(self, position, parent=None):
         self.position = position; self.parent = parent
@@ -332,58 +202,74 @@ def simple_controller(vehicle, path_world, current_path_index):
     if not path_world or current_path_index >= len(path_world):
         return {'throttle': 0.0, 'steering': 0.0}, current_path_index
 
-    target_point = path_world[current_path_index]
->>>>>>> shin
-    target_dx = target_point[0] - vehicle.x
-    target_dy = target_point[1] - vehicle.y
-    distance_to_target = math.sqrt(target_dx**2 + target_dy**2)
+    # --- 목표점 설정 (Look-ahead) ---
+    lookahead_dist = 40 # 픽셀 단위 lookahead 거리 (튜닝 가능)
+    target_point = path_world[-1] # 기본값: 마지막 점
+    found_lookahead = False
+    current_pos_np = np.array([vehicle.x, vehicle.y])
 
-<<<<<<< HEAD
-    # 목표점 방향 각도 계산
-    target_angle = math.atan2(target_dy, target_dx)
+    # 경로 상에서 현재 위치 기준 가장 가까운 점과 그 다음 세그먼트 찾기
+    min_dist_sq = float('inf')
+    closest_segment_start_index = current_path_index
+    for i in range(current_path_index, len(path_world)):
+         dist_sq = (vehicle.x - path_world[i][0])**2 + (vehicle.y - path_world[i][1])**2
+         if dist_sq < min_dist_sq:
+             min_dist_sq = dist_sq
+             closest_segment_start_index = i
+    current_path_index = max(current_path_index, closest_segment_start_index)
 
-    # 차량 현재 각도와 목표 각도 차이 계산
-    angle_error = target_angle - vehicle.angle
-    # 각도 차이 정규화 (-pi ~ pi)
-    while angle_error > math.pi: angle_error -= 2 * math.pi
-    while angle_error < -math.pi: angle_error += 2 * math.pi
+    # lookahead 지점 찾기
+    current_search_index = current_path_index
+    dist_accumulated = 0.0
+    vehicle_pos_on_path = np.array(path_world[current_path_index]) # 시작은 현재 인덱스 점으로 근사
 
-    # P 제어기 (비례 제어) - 조향
-    Kp_steering = 0.8 # 제어 게인 (튜닝 필요)
-    steering_signal = Kp_steering * angle_error
-    steering_signal = max(-1.0, min(1.0, steering_signal)) # -1 ~ 1 제한
+    # 현재 위치에서 가장 가까운 세그먼트 위의 점 찾기 (더 정확한 lookahead 시작점)
+    if current_path_index < len(path_world) - 1:
+        p1 = np.array(path_world[current_path_index])
+        p2 = np.array(path_world[current_path_index + 1])
+        segment_vec = p2 - p1
+        segment_len_sq = np.dot(segment_vec, segment_vec)
+        if segment_len_sq > 1e-6:
+             d = current_pos_np - p1
+             proj = np.dot(d, segment_vec) / segment_len_sq
+             proj = max(0.0, min(1.0, proj)) # 0~1 사이로 제한
+             vehicle_pos_on_path = p1 + proj * segment_vec
+             dist_accumulated = np.linalg.norm(vehicle_pos_on_path - p1) # 현재 세그먼트 위 시작점까지 누적거리
 
-    # P 제어기 - 스로틀 (목표점에 가까워지면 감속)
-    Kp_throttle = 0.5
-    target_speed = vehicle.max_speed * (distance_to_target / 100.0) # 거리에 비례 (튜닝 필요)
-    target_speed = min(vehicle.max_speed, target_speed)
-    throttle_signal = Kp_throttle * (target_speed - vehicle.speed) # 목표 속도와 현재 속도 차이
-    throttle_signal = max(-1.0, min(1.0, throttle_signal))
+    # lookahead 계산 루프
+    while current_search_index < len(path_world) - 1:
+        p1 = np.array(path_world[current_search_index])
+        p2 = np.array(path_world[current_search_index + 1])
+        segment_vec = p2 - p1
+        segment_len = np.linalg.norm(segment_vec)
+        if segment_len < 1e-6:
+            current_search_index += 1; continue
 
-    # 목표점에 매우 가까우면 정지 또는 다음 경로점 설정 로직 필요
-    if distance_to_target < 15: # 임계값
-        # path.pop(0) # 다음 경로점으로 (주의: 이 방식은 문제 발생 가능성 있음)
-        throttle_signal = -0.5 # 도착 시 감속/정지
+        # 현재 탐색 시작점(p1)부터 lookahead 지점까지 필요한 총 거리
+        # 첫 세그먼트에서는 차량의 경로상 위치부터 계산
+        dist_from_start_node = 0
+        if current_search_index == current_path_index:
+            dist_from_start_node = np.linalg.norm(vehicle_pos_on_path - p1)
 
-    return {'throttle': throttle_signal, 'steering': steering_signal}
+        total_dist_to_segment_end = (dist_accumulated - dist_from_start_node) + segment_len
 
+        if total_dist_to_segment_end >= lookahead_dist:
+            needed_dist_on_segment = lookahead_dist - (dist_accumulated - dist_from_start_node)
+            target_point = p1 + (segment_vec / segment_len) * needed_dist_on_segment
+            found_lookahead = True; break
+        else:
+            dist_accumulated += segment_len
+            current_search_index += 1
 
-# --- 메인 루프 ---
-vehicle = Vehicle(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 100)
-goal_pos = None
-current_path = []
+    if not found_lookahead: target_point = path_world[-1]
 
-running = True
-while running:
-=======
-    if distance_to_target < 30 and current_path_index < len(path_world) - 1: # 마지막 점 아닐 때만 인덱스 증가
-        current_path_index += 1
-    elif distance_to_target < 15 and current_path_index == len(path_world) - 1: # 마지막 점 도착 시
-        # 정지 또는 완료 상태 처리
-         return {'throttle': -0.5, 'steering': 0.0}, current_path_index + 1 # 완료 표시 위해 인덱스 증가
+    # 마지막 점 도착 조건
+    dist_to_final = math.dist((vehicle.x, vehicle.y), path_world[-1])
+    if current_path_index == len(path_world) - 1 and dist_to_final < 20:
+         return {'throttle': -0.5, 'steering': 0.0}, current_path_index + 1
 
-
-    target_angle = math.atan2(target_dy, target_dx)
+    # --- 조향각 계산 (오류 수정 및 Kp 증가) ---
+    target_angle = math.atan2(target_point[1] - vehicle.y, target_point[0] - vehicle.x)
     angle_error = target_angle - vehicle.angle
     # *** 각도 정규화 오류 수정 ***
     while angle_error > math.pi: angle_error -= 2 * math.pi # << 부호 수정
@@ -420,44 +306,9 @@ while running:
     if dt > 0.1: dt = 0.1
     keys = pygame.key.get_pressed()
 
->>>>>>> shin
     for event in pygame.event.get():
         if event.type == pygame.QUIT: running = False
         if event.type == pygame.MOUSEBUTTONDOWN:
-<<<<<<< HEAD
-            goal_pos = event.pos # 마우스 클릭 위치를 목표로 설정
-            # A* 경로 계획 수행 (시작점은 차량 현재 위치)
-            start_node = (int(vehicle.x), int(vehicle.y))
-            # TODO: A* 알고리즘을 위한 그리드 맵 생성 및 노드 변환 필요
-            current_path = a_star_pathfinding(None, start_node, goal_pos) # grid_map 전달 필요
-
-    # 1. 제어 입력 생성 (Controller)
-    control_signal = simple_controller(vehicle, current_path)
-
-    # 2. 차량 상태 업데이트 (Vehicle Dynamics)
-    vehicle.update(control_signal)
-
-    # 3. 화면 그리기 (Rendering)
-    screen.fill(WHITE)
-
-    # 맵 그리기
-    for wall in walls:
-        pygame.draw.rect(screen, GRAY, wall)
-
-    # 차량 그리기
-    vehicle.draw(screen)
-
-    # 목표 지점 그리기
-    if goal_pos:
-        pygame.draw.circle(screen, GREEN, goal_pos, 10)
-
-    # 경로 그리기
-    if len(current_path) > 1:
-        pygame.draw.lines(screen, RED, False, current_path, 2)
-
-    pygame.display.flip()
-    clock.tick(60) # 60 FPS
-=======
             goal_pos_world = event.pos
             start_pos_world = (vehicle.x, vehicle.y)
             start_pos_grid = to_grid_coords(start_pos_world[0], start_pos_world[1], GRID_SIZE)
@@ -537,7 +388,6 @@ while running:
          fail_text = FONT.render("Pathfinding Failed!", True, RED)
          screen.blit(fail_text, (SCREEN_WIDTH - fail_text.get_width() - 10, 40))
 
-
-    pygame.display.flip()
+    pygame.display.flip() # 화면 업데이트
 
 pygame.quit()
