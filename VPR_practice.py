@@ -4,7 +4,7 @@ import math
 # import matplotlib.pyplot as plt # 시각화 필요시
 
 # --- 설정 ---
-MAP_IMAGE_PATH = 'path/to/your/minimap.png' # 미니맵 이미지 경로
+MAP_IMAGE_PATH = './minimap.png' # 미니맵 이미지 경로
 FEATURE_EXTRACTOR = cv2.ORB_create(nfeatures=2000) # 특징점 추출기 (SIFT, SURF 등 다른 것 사용 가능)
 # FEATURE_EXTRACTOR = cv2.SIFT_create() # SIFT 사용 시 (특허 문제 확인 필요)
 MATCHER = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True) # 특징점 매칭기 (ORB는 NORM_HAMMING 사용)
