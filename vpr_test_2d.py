@@ -28,7 +28,7 @@ plt.rcParams['axes.unicode_minus'] = False
 # --- 환경 설정 및 파라미터 ---
 
 # initial_landmarks: 시뮬레이션 시작 시 기본 장애물(랜드마크) 설정
-# 딕셔너리 형태: { '이름': np.array([x좌표, y좌표]), ... }
+# 딕셔너리 형태: { '이름': https://postfiles.pstatic.net/MjAyNDExMTlfMjM3/MDAxNzMxOTkwMzEyNTU3.yGM_qMMCMHiscssL9YALPG9p2GtDxR0K4pDOqTbedhwg.WgekHkXnIICiBWhXLZYlmB33mmmKQ8M_k-ZWAGqwO5wg.JPEG/SE-6bc2fe49-dbc4-4a28-b75c-66503a253d75.jpg?type=w386np.array([x좌표, y좌표]), ... }
 initial_landmarks = {
     'Tree1': np.array([2.0, 8.0]), 'BuildingA': np.array([7.0, 2.0]),
     'Statue': np.array([10.0, 10.0]), 'Bench': np.array([1.0, 1.0]),
@@ -89,7 +89,6 @@ event_log_df = pd.DataFrame(columns=['Timestamp', 'EventType', 'X', 'Y', 'Detail
 # 가장 최근에 완료된 시뮬레이션의 평균 오차 값을 저장할 변수
 last_avg_error = np.nan # 초기값은 Not a Number (계산된 적 없음)
 
-
 # --- 시뮬레이션 핵심 함수들 ---
 
 def simulate_obstacle_detection(current_pos, known_landmarks, range_limit, noise_std):
@@ -126,7 +125,6 @@ def estimate_my_position(detected_info, known_landmarks_map):
             position_estimates.append(estimated_pos)
 
     if not position_estimates: return None # 유효한 추정치가 없으면 불가
-
     # 모든 유효한 추정치들의 산술 평균을 최종 추정 위치로 결정
     final_estimated_position = np.mean(position_estimates, axis=0)
     return final_estimated_position
