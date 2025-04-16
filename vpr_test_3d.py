@@ -11,7 +11,7 @@ plot_ax = None  # Axes 객체 저장용 전역 변수
 
 # --- Configuration ---
 MAP_SIZE = 20
-NUM_OBSTACLES = 50
+NUM_OBSTACLES = 100
 SENSOR_RANGE = 8
 SENSOR_FOV = 180
 SENSOR_RAYS = 90
