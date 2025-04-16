@@ -11,17 +11,18 @@ plot_ax = None  # Axes 객체 저장용 전역 변수
 
 # --- Configuration ---
 MAP_SIZE = 20
-NUM_OBSTACLES = 100
+NUM_OBSTACLES = 15 # 초기 장애물 수 줄임 (테스트 편의)
 SENSOR_RANGE = 8
 SENSOR_FOV = 180
 SENSOR_RAYS = 90
 MATCH_THRESHOLD = 0.8
 MATCH_THRESHOLD_SQ = MATCH_THRESHOLD**2
 CIRCLE_SEGMENTS = 36
-# 카메라 설정값 추가/수정
-CAMERA_PAN_SPEED = 15 # 방향키 이동 속도
-CAMERA_DEFAULT_DISTANCE = 30 # Top-down 뷰 기본 높이
-CAMERA_ZOOM_SPEED = 2 # 마우스 휠 줌 속도 (작을수록 민감)
+CAMERA_PAN_SPEED = 15
+CAMERA_DEFAULT_DISTANCE = 30 # 사용 안 함 (EditorCamera 복귀)
+CAMERA_ZOOM_SPEED = 1 # EditorCamera 줌 속도
+ROBOT_MOVE_SPEED = 5
+ROBOT_TURN_SPEED = 90
 
 # --- Global Variables ---
 global_obstacles_entities = []
@@ -29,7 +30,7 @@ global_obstacles_positions = [] # Vec3(x, 0, z)
 robot = None
 estimated_pose = None # Tuple (x, z, angle)
 estimated_pose_marker = None
-local_map_display_entities = []
+# local_map_display_entities 제거됨
 ground = None
 fov_lines = []
 sensor_range_visual = None
@@ -37,7 +38,7 @@ last_detected_local_points = [] # Vec2(rel_x, rel_z)
 matched_global_indices = []
 last_localization_score = -1.0
 
-# --- Helper Functions (Ursina related - unchanged) ---
+# --- Helper Functions (Ursina related) ---
 def generate_global_map():
     global global_obstacles_entities, global_obstacles_positions, ground
     for obs in global_obstacles_entities: destroy(obs)
@@ -52,12 +53,15 @@ def generate_global_map():
 def add_obstacle(position, scale_y=None):
     global global_obstacles_entities, global_obstacles_positions, matched_global_indices, last_localization_score
     if scale_y is None: scale_y = random.uniform(1, 3)
+    if robot and distance(position, robot.position) < 1.0:
+         print("Cannot add obstacle too close to the robot.")
+         return
+    print(f"Creating obstacle entity at {position}") # DEBUG
     obstacle = Entity(model='cube', position=position, color=color.gray, collider='box', scale_y=scale_y)
     global_obstacles_entities.append(obstacle)
     global_obstacles_positions.append(Vec3(position.x, 0, position.z)) # Store XZ
     matched_global_indices = []; last_localization_score = -1.0
     if estimated_pose_marker: estimated_pose_marker.enabled = False
-    print(f"Obstacle added at {position}. Localization info reset.")
 
 def simulate_lidar(robot_entity):
     global last_detected_local_points, SENSOR_FOV, SENSOR_RANGE, SENSOR_RAYS
@@ -79,18 +83,9 @@ def simulate_lidar(robot_entity):
     last_detected_local_points = detected_points_relative
     return detected_points_relative
 
-def generate_local_map_visualization(relative_points):
-    global local_map_display_entities
-    for entity in local_map_display_entities: destroy(entity);
-    local_map_display_entities.clear()
-    display_offset = Vec3(10, 0, -15); origin_marker = Entity(model='sphere', scale=0.3, position=display_offset, color=color.red)
-    local_map_display_entities.append(origin_marker)
-    for point in relative_points:
-        display_pos = display_offset + Vec3(point.x, 0.1, point.y)
-        point_entity = Entity(model='sphere', scale=0.15, position=display_pos, color=color.yellow)
-        local_map_display_entities.append(point_entity)
+# *** generate_local_map_visualization 함수 제거됨 ***
 
-# --- Localization Logic (calculate_similarity, perform_localization - unchanged) ---
+# --- Localization Logic (calculate_similarity, perform_localization) ---
 def calculate_similarity(potential_pose, local_map_points_relative, global_map_points_xz):
     global MATCH_THRESHOLD_SQ
     potential_pos = Vec3(potential_pose[0], 0, potential_pose[1]); potential_angle_rad = math.radians(potential_pose[2])
@@ -112,7 +107,10 @@ def perform_localization():
     print("--- Starting Localization ---");
     if not robot: print("Robot not initialized."); return
     local_map_points = simulate_lidar(robot); print(f"Detected {len(local_map_points)} points locally.")
-    generate_local_map_visualization(local_map_points)
+
+    # *** generate_local_map_visualization 호출 제거됨 ***
+    # generate_local_map_visualization(local_map_points)
+
     if not local_map_points:
         print("No points detected, cannot localize."); estimated_pose = None; last_localization_score = -1.0; matched_global_indices = []
         if estimated_pose_marker: estimated_pose_marker.enabled = False; return
@@ -130,7 +128,6 @@ def perform_localization():
                 score = calculate_similarity(potential_pose_tuple, local_map_points, global_obstacles_positions)
                 if score > best_score: best_score = score; current_best_pose = potential_pose_tuple
     estimated_pose = current_best_pose; last_localization_score = best_score
-    # ... (rest of perform_localization including print statements and marker update) ...
     print(f"Search completed. Checked {search_count} poses.")
     print(f"Best Estimated Pose: x={estimated_pose[0]:.2f}, z={estimated_pose[1]:.2f}, angle={estimated_pose[2]:.2f}")
     print(f"Actual Robot Pose:   x={robot.x:.2f}, z={robot.z:.2f}, angle={robot.rotation_y:.2f}")
@@ -214,85 +211,96 @@ app = Ursina()
 generate_global_map()
 robot = Entity(model='sphere', color=color.blue, collider='sphere', position=(0, 0.2, 0))
 robot_forward = Entity(model='cube', scale=(0.1, 0.1, 0.5), color=color.red, parent=robot, z=0.3)
-
-# *** 카메라 설정: Top-down 고정 뷰 ***
-camera.orthographic = True
-camera.rotation = (90, 0, 0) # 위에서 아래(-Y) 방향으로 설정
-camera.position = (0, CAMERA_DEFAULT_DISTANCE, 0) # 맵 중앙 위쪽
-camera.fov = MAP_SIZE * 2.5 # 맵 크기에 맞춰 FOV 조절 (Orthographic에서는 View 크기)
-
-# EditorCamera 제거됨
+# EditorCamera 복귀
+ec = EditorCamera(rotation_speed=100, panning_speed=100, zoom_speed=CAMERA_ZOOM_SPEED)
+# 초기 카메라 위치/각도 설정 (선택 사항)
+camera.position = (0, 25, -25)
+camera.rotation_x = 45
 
 # Instructions Text Update
 instructions = Text(
-    text="QE=Rotate Robot, Arrow Keys=Pan Camera (Top-Down View)\n"
-         "L=Localize & Plot, Left Click=Add Obstacle, Mouse Wheel=Zoom",
+    text="WASD/Mouse=Move/Rotate Camera, Arrow Keys=Pan Camera\n" # 방향키 패닝 설명 추가
+         "QE=Rotate Robot, L=Localize & Plot, Left Click=Add Obstacle",
     origin=(-0.5, 0.5), scale=1.5, position=window.top_left + Vec2(0.01, -0.01), background=True
 )
 
 # --- Initial Setup Calls ---
 update_fov_visualization()
-update_sensor_range_visualization()
+update_sensor_range_visualization() # 원 시각화 초기 호출
 
 
 # --- Input Handling ---
 def input(key):
-    global ground, CAMERA_ZOOM_SPEED # Zoom speed 사용
+    global ground, robot
+
     if key == 'l':
         perform_localization()
         update_plot_data_and_redraw()
     elif key == 'left mouse down':
-        # Top-down 뷰에서만 장애물 추가
-        if mouse.world_point:
-            # Intersect plane to ensure click is on ground level
-            plane_intersection = mouse.intersect_plane(plane_normal=Vec3(0,1,0), plane_origin=Vec3(0,0,0))
-            if plane_intersection:
-                 print(f"Adding obstacle near: {plane_intersection}")
-                 add_obstacle(Vec3(plane_intersection.x, 0.5, plane_intersection.z))
+        # *** 수정된 장애물 추가 로직: EditorCamera 환경 ***
+        # EditorCamera 사용 시에는 카메라 위치/방향이 계속 변함
+        # 마우스 위치에서 카메라 방향으로 레이캐스트하여 ground와 충돌점 찾기
+
+        origin = camera.world_position
+        if mouse.world_point: # 마우스가 3D 공간의 어떤 점을 가리키고 있을 때
+            direction = (mouse.world_point - origin).normalized()
+
+            hit_info = raycast(origin=origin,
+                               direction=direction,
+                               distance=inf,
+                               ignore=[robot] + fov_lines + ([sensor_range_visual] if sensor_range_visual else []),
+                               debug=False)
+
+            if hit_info.hit and hit_info.entity == ground:
+                click_pos = hit_info.world_point
+                print(f"Adding obstacle via raycast at: {click_pos}")
+                obstacle_position = Vec3(click_pos.x, 0.5, click_pos.z)
+                add_obstacle(obstacle_position)
+            elif hit_info.hit:
+                print(f"Click hit {hit_info.entity.name if hasattr(hit_info.entity, 'name') else 'unnamed entity'}, not ground.")
             else:
-                 print("Click on the ground plane (dark grey area) to add an obstacle.")
-    # *** 추가: 마우스 휠 줌 기능 ***
-    elif key == 'scroll up':
-        # Orthographic zoom in = decrease fov
-        camera.fov = max(1, camera.fov - CAMERA_ZOOM_SPEED)
-        print(f"Camera FOV (Ortho Size): {camera.fov:.2f}")
-    elif key == 'scroll down':
-        # Orthographic zoom out = increase fov
-        camera.fov += CAMERA_ZOOM_SPEED
-        print(f"Camera FOV (Ortho Size): {camera.fov:.2f}")
+                print("Click ray did not hit the ground plane.")
+        else:
+            # 마우스가 허공을 가리키는 경우 등 world_point가 없을 때
+             print("Cannot determine mouse target in 3D space to cast ray.")
+
+    # 마우스 휠 줌은 EditorCamera가 기본적으로 처리
 
 
 # --- Update Loop ---
 def update():
     global robot, sensor_range_visual
     if not robot: return
-
-    # Robot Movement
-    move_speed = 5 * time.dt; turn_speed = 90 * time.dt
+    move_speed = ROBOT_MOVE_SPEED * time.dt; turn_speed = ROBOT_TURN_SPEED * time.dt
     moved_or_rotated = False
     input_active = False # No input fields currently
 
+    # --- Robot Movement ---
     if held_keys['w'] and not input_active: robot.position += robot.forward * move_speed; moved_or_rotated = True
     if held_keys['s'] and not input_active: robot.position -= robot.forward * move_speed; moved_or_rotated = True
+    if held_keys['a'] and not input_active: robot.position -= robot.right * move_speed; moved_or_rotated = True # Strafe Left
+    if held_keys['d'] and not input_active: robot.position += robot.right * move_speed; moved_or_rotated = True # Strafe Right
     if held_keys['q'] and not input_active: robot.rotation_y -= turn_speed; moved_or_rotated = True
     if held_keys['e'] and not input_active: robot.rotation_y += turn_speed; moved_or_rotated = True
 
     if robot.y < 0.1: robot.y = 0.1
     if moved_or_rotated:
         update_fov_visualization()
-        update_sensor_range_visualization()
+        update_sensor_range_visualization() # 로봇 이동 시 원 업데이트
 
-    # *** 수정된 카메라 패닝 로직 (Top-Down View) ***
+    # --- Camera Panning with Arrow Keys (XZ Plane) ---
+    # EditorCamera와 함께 사용 (EditorCamera의 WASD와 기능적으로 유사/중복될 수 있음)
     pan_amount = CAMERA_PAN_SPEED * time.dt
-    # Top-down (ZX) view: Up/Down -> Z axis, Left/Right -> X axis
-    vertical_vec = Vec3(0, 0, 1)
-    horizontal_vec = Vec3(1, 0, 0)
-
-    # Apply movement directly to camera position
-    if held_keys['up arrow']: camera.position += vertical_vec * pan_amount
-    if held_keys['down arrow']: camera.position -= vertical_vec * pan_amount
-    if held_keys['left arrow']: camera.position -= horizontal_vec * pan_amount
-    if held_keys['right arrow']: camera.position += horizontal_vec * pan_amount
+    if hasattr(camera, 'parent') and camera.parent is not None:
+        cam_pivot = camera.parent
+        try:
+            forward_xz = Vec3(camera.forward.x, 0, camera.forward.z).normalized()
+            right_xz = Vec3(camera.right.x, 0, camera.right.z).normalized()
+            if held_keys['up arrow']: cam_pivot.position += forward_xz * pan_amount
+            if held_keys['down arrow']: cam_pivot.position -= forward_xz * pan_amount
+            if held_keys['left arrow']: cam_pivot.position -= right_xz * pan_amount
+            if held_keys['right arrow']: cam_pivot.position += right_xz * pan_amount
+        except: pass # Ignore potential ZeroDivisionError
 
 
 # --- Start the Application ---
