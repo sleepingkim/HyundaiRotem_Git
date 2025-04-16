@@ -2,8 +2,7 @@ from ursina import *
 import random
 import math
 import numpy as np
-# Matplotlib 추가
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt # Matplotlib 사용
 
 # --- Matplotlib Interactive Mode Setup ---
 plt.ion() # 대화형 모드 켜기
@@ -16,6 +15,10 @@ NUM_OBSTACLES = 15
 SENSOR_RANGE = 8
 SENSOR_FOV = 180
 SENSOR_RAYS = 90
+# 유사도 계산 및 매칭 확인을 위한 임계값 (거리)
+MATCH_THRESHOLD = 0.8
+# 계산 효율성을 위해 임계값의 제곱을 미리 계산
+MATCH_THRESHOLD_SQ = MATCH_THRESHOLD**2
 
 # --- Global Variables ---
 global_obstacles_entities = []
@@ -27,8 +30,10 @@ local_map_display_entities = []
 ground = None
 fov_lines = []
 last_detected_local_points = [] # Vec2(rel_x, rel_z)
+matched_global_indices = [] # 추정 위치 계산에 사용된 전역 장애물 인덱스 리스트
+last_localization_score = -1.0 # 마지막 위치 추정 시의 최고 유사도 점수
 
-# --- Helper Functions (Ursina related - unchanged from previous version) ---
+# --- Helper Functions (Ursina related) ---
 def generate_global_map():
     global global_obstacles_entities, global_obstacles_positions, ground
     ground = Entity(model='plane', scale=MAP_SIZE * 2, color=color.dark_gray, texture='white_cube', texture_scale=(MAP_SIZE, MAP_SIZE), collider='box', name='ground_plane')
@@ -38,14 +43,18 @@ def generate_global_map():
         if pos.length() > 3: add_obstacle(pos)
 
 def add_obstacle(position, scale_y=None):
-    global global_obstacles_entities, global_obstacles_positions
+    global global_obstacles_entities, global_obstacles_positions, matched_global_indices, last_localization_score
     if scale_y is None: scale_y = random.uniform(1, 3)
     obstacle = Entity(model='cube', position=position, color=color.gray, collider='box', scale_y=scale_y)
     global_obstacles_entities.append(obstacle)
     global_obstacles_positions.append(Vec3(position.x, 0, position.z)) # Store XZ
-    print(f"Obstacle added at {position}")
-    # Obstacle added, maybe update plot if it's open? (Optional enhancement)
-    # if plot_fig: update_plot_data_and_redraw() # Need a function like this
+    # Reset localization info when map changes
+    matched_global_indices = []
+    last_localization_score = -1.0
+    if estimated_pose_marker: estimated_pose_marker.enabled = False
+    print(f"Obstacle added at {position}. Localization info reset.")
+    # Optional: update plot if open
+    # if plot_fig: update_plot_data_and_redraw()
 
 def simulate_lidar(robot_entity):
     global last_detected_local_points
@@ -82,54 +91,81 @@ def generate_local_map_visualization(relative_points): # Ursina visualization
         point_entity = Entity(model='sphere', scale=0.15, position=display_pos, color=color.yellow)
         local_map_display_entities.append(point_entity)
 
+# --- Localization Logic ---
+
+# !!! 여기가 수정된 유사도 계산 함수 !!!
 def calculate_similarity(potential_pose, local_map_points_relative, global_map_points_xz):
+    """Calculates similarity score using inverse distance weighting for matched points."""
     potential_pos = Vec3(potential_pose[0], 0, potential_pose[1])
     potential_angle_rad = math.radians(potential_pose[2])
-    score = 0; match_threshold_sq = 0.8**2
+    total_score = 0.0
+    # 0으로 나누는 것을 방지하고 매우 가까운 점에 높은 점수를 주기 위한 작은 값
+    epsilon = 0.1
+    # MATCH_THRESHOLD_SQ는 전역으로 정의됨
+
     cos_a = math.cos(potential_angle_rad); sin_a = math.sin(potential_angle_rad)
+    # global_map_points_xz는 Vec3 리스트이므로, XZ 튜플로 변환
     global_map_xz_tuples = [(p.x, p.z) for p in global_map_points_xz]
-    for local_pt in local_map_points_relative:
+
+    if not local_map_points_relative: # 지역 스캔 포인트가 없으면 0점 반환
+        return 0.0
+
+    for local_pt in local_map_points_relative: # local_pt는 Vec2
+        # 로컬 포인트를 월드 좌표로 변환 (가상)
         x_rot = local_pt.x * cos_a - local_pt.y * sin_a
         z_rot = local_pt.x * sin_a + local_pt.y * cos_a
         world_pt_guess_x = potential_pos.x + x_rot
         world_pt_guess_z = potential_pos.z + z_rot
+
         min_dist_sq = float('inf')
+        # 가장 가까운 전역 장애물 포인트까지의 거리(제곱) 찾기
         for gx, gz in global_map_xz_tuples:
             dist_sq = (world_pt_guess_x - gx)**2 + (world_pt_guess_z - gz)**2
-            if dist_sq < min_dist_sq: min_dist_sq = dist_sq
-        if min_dist_sq < match_threshold_sq: score += 1
-    if local_map_points_relative: score /= len(local_map_points_relative)
-    return score
+            if dist_sq < min_dist_sq:
+                min_dist_sq = dist_sq
+
+        # 임계값 안에 들어오면, 역거리에 기반한 점수 추가
+        if min_dist_sq < MATCH_THRESHOLD_SQ:
+            distance = math.sqrt(min_dist_sq)
+            total_score += 1.0 / (distance + epsilon) # 가까울수록 높은 점수
+
+    # 가중치 합계를 최종 점수로 반환
+    return total_score
+
 
 def perform_localization():
     global robot, estimated_pose, estimated_pose_marker, global_obstacles_positions
-    # ... (Localization logic remains the same as before) ...
+    global last_localization_score, matched_global_indices # 전역 변수 사용
+
     print("--- Starting Localization ---")
     if not robot: print("Robot not initialized."); return
 
+    # 1. Simulate Scan & Visualize Locally
     local_map_points = simulate_lidar(robot) # last_detected_local_points 업데이트됨
     print(f"Detected {len(local_map_points)} points locally.")
     generate_local_map_visualization(local_map_points)
 
+    # 2. Check if Localization Possible
     if not local_map_points:
         print("No points detected, cannot localize.")
-        estimated_pose = None # 추정값 없음
+        estimated_pose = None; last_localization_score = -1.0; matched_global_indices = []
         if estimated_pose_marker: estimated_pose_marker.enabled = False
         return
     else:
         if estimated_pose_marker: estimated_pose_marker.enabled = True
 
+    # 3. Search for Best Pose
     search_radius = 3.0; angle_search_range = 30
-    pos_step = 0.5; angle_step = 5
-    best_score = -1
+    pos_step = 0.5; angle_step = 5 # 그리드 간격 (필요시 조절)
+    best_score = -1.0 # 점수는 0 이상이므로 -1.0으로 초기화
 
-    if estimated_pose:
+    if estimated_pose: # 이전 추정값이 있으면 거기서 시작
         start_pos = Vec3(estimated_pose[0], 0, estimated_pose[1])
         start_angle = estimated_pose[2]
-    else:
+    else: # 없으면 로봇의 현재 위치에서 시작
         start_pos = robot.position
         start_angle = robot.rotation_y
-    current_best_pose = (start_pos.x, start_pos.z, start_angle)
+    current_best_pose = (start_pos.x, start_pos.z, start_angle) # 현재까지 최적 포즈
 
     search_count = 0
     for dx in np.arange(-search_radius, search_radius + pos_step, pos_step):
@@ -140,17 +176,49 @@ def perform_localization():
                 potential_angle = (start_angle + dangle) % 360
                 potential_pose_tuple = (potential_x, potential_z, potential_angle)
                 search_count += 1
+                # *** 개선된 유사도 함수 호출 ***
                 score = calculate_similarity(potential_pose_tuple, local_map_points, global_obstacles_positions)
                 if score > best_score:
                     best_score = score
                     current_best_pose = potential_pose_tuple
 
+    # 4. Store Best Pose and Score
     estimated_pose = current_best_pose
+    last_localization_score = best_score # 최고 점수 저장
     print(f"Search completed. Checked {search_count} poses.")
     print(f"Best Estimated Pose: x={estimated_pose[0]:.2f}, z={estimated_pose[1]:.2f}, angle={estimated_pose[2]:.2f}")
     print(f"Actual Robot Pose:   x={robot.x:.2f}, z={robot.z:.2f}, angle={robot.rotation_y:.2f}")
-    print(f"Best Score: {best_score:.4f}")
+    print(f"Best Score (Inverse Dist Sum): {last_localization_score:.4f}") # 점수 의미 명시
 
+    # 5. Identify Matched Global Obstacles for Visualization
+    matched_indices_set = set()
+    if estimated_pose:
+        est_x, est_z, est_angle_deg = estimated_pose
+        potential_pos = Vec3(est_x, 0, est_z)
+        potential_angle_rad = math.radians(est_angle_deg)
+        cos_a = math.cos(potential_angle_rad); sin_a = math.sin(potential_angle_rad)
+
+        for local_pt in local_map_points:
+            x_rot = local_pt.x * cos_a - local_pt.y * sin_a
+            z_rot = local_pt.x * sin_a + local_pt.y * cos_a
+            world_pt_guess_x = potential_pos.x + x_rot
+            world_pt_guess_z = potential_pos.z + z_rot
+
+            min_dist_sq = float('inf')
+            best_match_idx = -1
+            for idx, global_pt in enumerate(global_obstacles_positions):
+                dist_sq = (world_pt_guess_x - global_pt.x)**2 + (world_pt_guess_z - global_pt.z)**2
+                if dist_sq < min_dist_sq:
+                    min_dist_sq = dist_sq
+                    best_match_idx = idx
+
+            if best_match_idx != -1 and min_dist_sq < MATCH_THRESHOLD_SQ:
+                matched_indices_set.add(best_match_idx)
+
+    matched_global_indices = list(matched_indices_set) # 전역 리스트 업데이트
+    print(f"Indices of matched global obstacles: {matched_global_indices}")
+
+    # 6. Update Ursina Marker
     if estimated_pose_marker:
         estimated_pose_marker.position = Vec3(estimated_pose[0], 0.1, estimated_pose[1])
         estimated_pose_marker.rotation_y = estimated_pose[2]
@@ -161,9 +229,7 @@ def perform_localization():
         Entity(model='sphere', scale=0.5, color=color.green, parent=estimated_pose_marker, y=-0.2)
     print("--- Localization Finished ---")
 
-
 def update_fov_visualization():
-     # ... (FOV visualization logic remains the same) ...
     global fov_lines
     if not robot: return
     for line in fov_lines: destroy(line)
@@ -180,48 +246,40 @@ def update_fov_visualization():
     fov_lines.append(Entity(model=Mesh(vertices=[origin, end_left], mode='line', thickness=line_thickness), color=line_color))
     fov_lines.append(Entity(model=Mesh(vertices=[origin, end_right], mode='line', thickness=line_thickness), color=line_color))
 
-
-# --- Matplotlib Plotting Function (Now Updates Existing Plot) ---
+# --- Matplotlib Plotting Function ---
 def update_plot_data_and_redraw():
-    """Updates the Matplotlib plot with current data without blocking."""
-    global plot_fig, plot_ax, global_obstacles_positions, last_detected_local_points, robot, estimated_pose
+    global plot_fig, plot_ax, global_obstacles_positions, last_detected_local_points
+    global robot, estimated_pose, matched_global_indices, last_localization_score
 
-    # --- Get Current Data ---
     global_obs_pos = global_obstacles_positions
     local_scan_relative = last_detected_local_points
-    if robot:
-        actual_pose = (robot.x, robot.z, robot.rotation_y)
-    else:
-        actual_pose = None # Robot not ready
-    # estimated_pose is already updated globally by perform_localization
+    actual_pose = (robot.x, robot.z, robot.rotation_y) if robot else None
 
-    # --- Initialize Plot if it doesn't exist ---
     if plot_fig is None:
-        plot_fig, plot_ax = plt.subplots(figsize=(8, 8))
-        # Make sure the window appears (might be needed depending on backend)
-        # plot_fig.show() # Sometimes needed, sometimes plt.pause is enough
+        plot_fig, plot_ax = plt.subplots(figsize=(8.5, 8))
 
-    # --- Clear Previous Plot Elements ---
     plot_ax.clear()
 
-    # --- Redraw Elements ---
-    # 1. Global Obstacles
+    # 1. Global Obstacles (Matched vs Unmatched)
+    unmatched_obs_x, unmatched_obs_z = [], []
+    matched_obs_x, matched_obs_z = [], []
     if global_obs_pos:
-        obs_x = [p.x for p in global_obs_pos]
-        obs_z = [p.z for p in global_obs_pos]
-        plot_ax.scatter(obs_x, obs_z, c='grey', marker='s', s=100, label='Global Obstacles')
+        for idx, p in enumerate(global_obs_pos):
+            if idx in matched_global_indices:
+                matched_obs_x.append(p.x); matched_obs_z.append(p.z)
+            else:
+                unmatched_obs_x.append(p.x); unmatched_obs_z.append(p.z)
+    plot_ax.scatter(unmatched_obs_x, unmatched_obs_z, c='grey', marker='s', s=100, label='Global Obstacles (Unmatched)')
+    plot_ax.scatter(matched_obs_x, matched_obs_z, c='magenta', marker='s', s=120, label='Global Obstacles (Matched)', edgecolors='black')
 
     # 2. Local Scan (World Coords)
-    scan_world_x = []
-    scan_world_z = []
+    scan_world_x, scan_world_z = [], []
     if local_scan_relative and actual_pose:
         robot_x, robot_z, robot_angle_deg = actual_pose
         angle_rad = math.radians(robot_angle_deg); cos_a = math.cos(angle_rad); sin_a = math.sin(angle_rad)
         for pt in local_scan_relative:
-            x_rot = pt.x * cos_a - pt.y * sin_a
-            z_rot = pt.x * sin_a + pt.y * cos_a
-            scan_world_x.append(robot_x + x_rot)
-            scan_world_z.append(robot_z + z_rot)
+            x_rot = pt.x * cos_a - pt.y * sin_a; z_rot = pt.x * sin_a + pt.y * cos_a
+            scan_world_x.append(robot_x + x_rot); scan_world_z.append(robot_z + z_rot)
     if scan_world_x:
         plot_ax.scatter(scan_world_x, scan_world_z, c='yellow', marker='o', s=30, label='Detected Scan (World)')
 
@@ -230,39 +288,34 @@ def update_plot_data_and_redraw():
         robot_x, robot_z, robot_angle_deg = actual_pose
         plot_ax.scatter(robot_x, robot_z, c='blue', marker='o', s=150, label='Actual Pose')
         angle_rad = math.radians(robot_angle_deg); arrow_len = 1.5
-        plot_ax.arrow(robot_x, robot_z, arrow_len * math.sin(angle_rad), arrow_len * math.cos(angle_rad),
-                      head_width=0.5, head_length=0.7, fc='blue', ec='blue')
+        plot_ax.arrow(robot_x, robot_z, arrow_len * math.sin(angle_rad), arrow_len * math.cos(angle_rad), head_width=0.5, head_length=0.7, fc='blue', ec='blue')
 
     # 4. Estimated Robot Pose
     if estimated_pose:
         est_x, est_z, est_angle_deg = estimated_pose
         plot_ax.scatter(est_x, est_z, c='lime', marker='o', s=150, label='Estimated Pose', alpha=0.7)
         angle_rad = math.radians(est_angle_deg); arrow_len = 1.5
-        plot_ax.arrow(est_x, est_z, arrow_len * math.sin(angle_rad), arrow_len * math.cos(angle_rad),
-                      head_width=0.5, head_length=0.7, fc='lime', ec='lime', alpha=0.7)
+        plot_ax.arrow(est_x, est_z, arrow_len * math.sin(angle_rad), arrow_len * math.cos(angle_rad), head_width=0.5, head_length=0.7, fc='lime', ec='lime', alpha=0.7)
 
-    # --- Re-apply Formatting ---
-    plot_ax.set_xlabel("X coordinate")
-    plot_ax.set_ylabel("Z coordinate")
-    plot_ax.set_title("2D Map and Localization (Live Update)")
+    # Formatting & Score Text
+    plot_ax.set_xlabel("X coordinate"); plot_ax.set_ylabel("Z coordinate")
+    title_text = "2D Map and Localization"
+    if last_localization_score >= 0:
+        # 점수 형식을 지수 표기법(e) 대신 소수점 표기
+        title_text += f"\nSimilarity Score: {last_localization_score:.4f}"
+    plot_ax.set_title(title_text)
     plot_ax.set_aspect('equal', adjustable='box')
     limit = MAP_SIZE * 1.1
-    plot_ax.set_xlim(-limit, limit)
-    plot_ax.set_ylim(-limit, limit)
+    plot_ax.set_xlim(-limit, limit); plot_ax.set_ylim(-limit, limit)
     plot_ax.grid(True)
-    plot_ax.legend()
+    plot_ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1), borderaxespad=0.)
 
-    # --- Draw and Process Events ---
     try:
-        plot_fig.canvas.draw() # Redraw the canvas
-        # Give matplotlib event loop a chance to process (very short pause)
-        plt.pause(0.01) # Adjust if needed, smaller values are less blocking
+        plot_fig.canvas.draw()
+        plt.pause(0.01)
+        plt.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout for legend
     except Exception as e:
         print(f"Matplotlib plotting error: {e}")
-        # Handle cases where the plot window might have been closed manually
-        # Reset plot_fig and plot_ax so it gets recreated next time
-        # plot_fig = None
-        # plot_ax = None
 
 # --- Ursina Application Setup ---
 app = Ursina()
@@ -281,17 +334,14 @@ update_fov_visualization()
 def input(key):
     global ground
     if key == 'l':
-        # 1. Perform localization (updates estimated_pose and last_detected_local_points)
-        perform_localization()
-        # 2. Update the plot (non-blocking)
-        update_plot_data_and_redraw()
-
+        perform_localization() # Updates globals: estimated_pose, score, matched_indices
+        update_plot_data_and_redraw() # Uses updated globals
     elif key == 'left mouse down':
         if mouse.hovered_entity == ground:
             click_pos = mouse.world_point
             new_obstacle_pos = Vec3(click_pos.x, 0.5, click_pos.z)
-            add_obstacle(new_obstacle_pos)
-             # Optional: Update plot immediately when obstacle is added
+            add_obstacle(new_obstacle_pos) # Resets localization info
+            # Optional: update plot immediately?
             # if plot_fig: update_plot_data_and_redraw()
         else:
             print("Click on the ground plane (dark grey area) to add an obstacle.")
@@ -307,18 +357,14 @@ def update():
     if held_keys['q']: robot.rotation_y -= turn_speed; moved_or_rotated = True
     if held_keys['e']: robot.rotation_y += turn_speed; moved_or_rotated = True
     if robot.y < 0.1: robot.y = 0.1
-    if moved_or_rotated: update_fov_visualization()
-
-    # --- Optional: Auto-update plot while moving ---
-    # If you want the plot to update more frequently (e.g., whenever robot moves)
-    # Be cautious, this might impact performance more.
-    # if moved_or_rotated and plot_fig:
-    #     update_plot_data_and_redraw() # Call update here instead of just on 'L'
+    if moved_or_rotated:
+        update_fov_visualization()
+        # Optionally reset matched indices on move to force recalculation if desired
+        # global matched_global_indices, last_localization_score
+        # matched_global_indices = []
+        # last_localization_score = -1.0
+        # if plot_fig: update_plot_data_and_redraw()
 
 
 # --- Start the Application ---
 app.run()
-
-# --- Cleanup Matplotlib (Optional) ---
-# plt.ioff() # Turn off interactive mode if needed after app closes
-# plt.close(plot_fig) # Close the figure if it exists
