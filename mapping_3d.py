@@ -143,7 +143,7 @@ print(f"실제 장애물 정보 DataFrame 생성 완료 ({len(obstacle_df)}개).
 agent = Entity(model='sphere', color=color.blue, position=(0, AGENT_HEIGHT, 0), collider='sphere', scale=1)
 # 카메라 설정:
 camera.parent = agent        # 카메라를 에이전트의 자식으로 설정 (에이전트를 따라다님)
-camera.position = (0, 15, -6) # 에이전트 기준 카메라의 상대적 위치 (뒤쪽 위)
+camera.position = (0, 15, -8) # 에이전트 기준 카메라의 상대적 위치 (뒤쪽 위)
 camera.rotation_x = 45        # 카메라의 초기 상하 각도 (아래를 보도록)
 camera.rotation_y = 0         # 카메라의 초기 좌우 각도 (정면)
 camera.fov = 75               # 카메라의 시야각 (Field of View)
